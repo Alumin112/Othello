@@ -1,2 +1,2 @@
 # Othello
-Othello in rust :)
+Othello in rust :)  Currently under dev
