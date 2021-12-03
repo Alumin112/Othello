@@ -29,7 +29,7 @@ impl Othello {
     }
 
     fn place_if_possible(&mut self, position: Square) -> Result<GameState, &'static str> {
-        if (self.squares[0] | self.squares[1]) & 1 << position.0 == 1 {
+        if (self.squares[0] | self.squares[1]) & 1 << position.0 != 0 {
             return Err("The square is occupied");
         }
         let flips = self.get_possible_moves();
@@ -78,39 +78,42 @@ impl Othello {
             (1, 1),
             (1, -1),
         ] {
-            match (position.0 % 8, x, y) {
+            let mut square = match (position.0 % 8, x, y) {
                 (7, 9 | 1, 1) => continue,
                 (7, 7, -1) => continue,
                 (0, 7, 1) => continue,
                 (0, 9 | 1, -1) => continue,
-                _ => (),
-            }
-
-            let mut square = if y < 0 {
-                match position.0.checked_sub(x) {
+                _ => position.0,
+            };
+            square = if y < 0 {
+                match square.checked_sub(x) {
                     None => continue,
                     Some(res) => res,
                 }
             } else {
-                match position.0.checked_add(x) {
+                match square.checked_add(x) {
                     None => continue,
                     Some(res) => res,
                 }
             };
-
             let mut flips = Vec::new();
             let flips = loop {
-                if !(0..64).contains(&square) {
+                if !(..64).contains(&square) {
                     break None;
                 }
                 match (
-                    self.squares[!self.turn.to_bin() & 1] & 1 << square,
-                    self.squares[self.turn.to_bin()] & 1 << square,
+                    self.squares[!self.turn.to_bin() & 1] & 1 << square != 0,
+                    self.squares[self.turn.to_bin()] & 1 << square != 0,
                 ) {
-                    (0, 0) => break None,
-                    (0, _) => break Some(flips),
-                    (_, 0) => {
-                        flips.push(Square(square));
+                    (false, true) => break Some(flips),
+                    (true, false) => {
+                        match (square % 8, x, y) {
+                            (7, 9 | 1, 1) => break None,
+                            (7, 7, -1) => break None,
+                            (0, 7, 1) => break None,
+                            (0, 9 | 1, -1) => break None,
+                            _ => flips.push(Square(square)),
+                        }
                         square = if y < 0 {
                             match square.checked_sub(x) {
                                 None => break None,
@@ -122,15 +125,8 @@ impl Othello {
                                 Some(res) => res,
                             }
                         };
-                        match (square % 8, x, y) {
-                            (7, 9 | 1, 1) => break None,
-                            (7, 7, -1) => break None,
-                            (0, 7, 1) => break None,
-                            (0, 9 | 1, -1) => break None,
-                            _ => (),
-                        }
                     }
-                    (_, _) => (),
+                    (_, _) => break None,
                 }
             };
             if let Some(mut flips) = flips {
@@ -209,7 +205,7 @@ impl std::fmt::Display for Othello {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct Square(pub u64);
 
 impl Square {
@@ -237,6 +233,17 @@ impl Square {
 }
 
 impl std::fmt::Display for Square {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}",
+            (self.0 % 8 + 65) as u8 as char,
+            (self.0 / 8 + 49) as u8 as char
+        )
+    }
+}
+
+impl std::fmt::Debug for Square {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

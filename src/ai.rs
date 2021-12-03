@@ -578,7 +578,7 @@ impl AI {
     }
 
     fn get_move_from_opening_book(opening: &str) -> Option<String> {
-        return None;
+        // return None;
         let mut rng = thread_rng();
         let mut lines = Self::OPENING_BOOK
             .into_iter()

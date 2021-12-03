@@ -11,17 +11,18 @@ fn main() {
     // AI::search_iteratively(board.copy(), 6);
     // println!("{:#?}", AI::get_best_move(board.copy(), 5));
     loop {
-    let info = play(&mut board, 6, &mut moves, true);
-    println!("{:?}", info);
-    println!("{}\n", board);
-    if let GameInfo::IsOver(_) = info {
-        break;
-    }
-    // println!("{}\n", board);
-    // std::io::stdin().read_line(&mut input).unwrap();
-    // input.pop();
-    // board.play(Square::from(&input).unwrap()).unwrap();
-    // input.clear();
+        println!("{:?}", board.get_moves());
+        let info = play(&mut board, 7, &mut moves, false);
+        println!("{:?}", info);
+        println!("{}\n", board);
+        if let GameInfo::IsOver(_) = info {
+            break;
+        }
+        // println!("{}\n", board);
+        // std::io::stdin().read_line(&mut input).unwrap();
+        // input.pop();
+        // board.play(Square::from(&input).unwrap()).unwrap();
+        // input.clear();
     }
 }
 
