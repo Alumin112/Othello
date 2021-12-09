@@ -410,36 +410,59 @@ impl AI {
         "F5f6E6f4G7",
     ];
 
-    pub fn get_best_move(mut position: Othello, depth: u8) -> (Option<Square>, i32, u64) {
+    pub fn get_best_move(position: Othello, depth: u8) -> (Square, Evaluation, u64) {
         let mut transpositions = HashMap::new();
-        let mut eval = i32::MIN + 1;
+        let mut eval = Evaluation::new(i32::MIN + 1);
         let mut nodes = 1;
-        let mut best_move = None;
-        let mut moves = position.get_moves();
-        if moves.is_empty() {
-            position.turn.flip();
-            moves = position.get_moves();
-        }
+        let moves = position.get_moves();
+        let mut best_move = moves[0];
 
         // Search the best move
         for move_ in moves {
             let mut pos = position.copy();
-            match pos.play(move_).unwrap() {
-                GameInfo::IsOver(winner) => {
-                    if winner == position.turn {
-                        return (Some(move_), i32::MAX, nodes);
-                    } else {
-                        return (Some(move_), i32::MIN + 1, nodes);
-                    }
+            if let GameInfo::IsOver(winner) = pos.play(move_).unwrap() {
+                if winner.to_bin() == position.turn.to_bin() {
+                    return (move_, Evaluation::new(i32::MAX), nodes);
+                } else {
+                    return (move_, Evaluation::new(i32::MIN + 1), nodes);
                 }
-                GameInfo::Ok(_) => (),
-                GameInfo::Pass(_) => break,
             }
-            let res = Self::negamax(pos, depth - 1, i32::MIN + 1, -eval, &mut transpositions);
+            let res = Self::negamax(pos, depth - 1, i32::MIN + 1, -eval.0, &mut transpositions);
             nodes += res.1;
             if -res.0 >= eval {
                 eval = -res.0;
-                best_move = Some(move_)
+                best_move = move_
+            }
+        }
+
+        (best_move, eval, nodes)
+    }
+
+    fn get_best_move_t(
+        position: Othello,
+        depth: u8,
+        transpositions: &mut HashMap<u128, MoveTable>,
+    ) -> (Square, Evaluation, u64) {
+        let mut eval = Evaluation::new(i32::MIN + 1);
+        let mut nodes = 1;
+        let moves = position.get_moves();
+        let mut best_move = moves[0];
+
+        // Search the best move
+        for move_ in moves {
+            let mut pos = position.copy();
+            if let GameInfo::IsOver(winner) = pos.play(move_).unwrap() {
+                if winner.to_bin() == position.turn.to_bin() {
+                    return (move_, Evaluation::new(i32::MAX), nodes);
+                } else {
+                    return (move_, Evaluation::new(i32::MIN + 1), nodes);
+                }
+            }
+            let res = Self::negamax(pos, depth - 1, i32::MIN + 1, -eval.0, transpositions);
+            nodes += res.1;
+            if -res.0 >= eval {
+                eval = -res.0;
+                best_move = move_
             }
         }
 
@@ -452,7 +475,7 @@ impl AI {
         mut alpha: i32, // -infinity
         mut beta: i32,  // +infinity
         transpositions: &mut HashMap<u128, MoveTable>,
-    ) -> (i32, u64) {
+    ) -> (Evaluation, u64) {
         let origalpha = alpha;
 
         // Search the move in the transposition table
@@ -463,9 +486,9 @@ impl AI {
                 if x.flag == Flag::Exact {
                     return (x.eval, 1);
                 } else if x.flag == Flag::Lowerbound {
-                    alpha = std::cmp::max(alpha, x.eval);
+                    alpha = std::cmp::max(alpha, x.eval.0);
                 } else if x.flag == Flag::Upperbound {
-                    beta = std::cmp::min(beta, x.eval)
+                    beta = std::cmp::min(beta, x.eval.0)
                 }
 
                 if alpha >= beta {
@@ -477,14 +500,16 @@ impl AI {
         // Return if depth is 0
         if depth == 0 {
             return (
-                (position.turn.to_bin() as i32 * 2 - 1) * Self::evaluate(position),
+                Evaluation::new(
+                    (position.turn.to_bin() as i32 * 2 - 1) * Self::evaluate(position).0,
+                ),
                 1,
             );
         }
 
         // Search the best move
         let mut nodes = 1;
-        let mut eval = i32::MIN + 1;
+        let mut eval = Evaluation::new(i32::MIN + 1);
         let mut moves = position.get_moves();
         if moves.is_empty() {
             position.turn.flip();
@@ -492,21 +517,17 @@ impl AI {
         }
         for move_ in moves {
             let mut pos = position.copy();
-            match pos.play(move_).unwrap() {
-                GameInfo::IsOver(winner) => {
-                    if winner == position.turn {
-                        return (i32::MAX, nodes);
-                    } else {
-                        return (i32::MIN + 1, nodes);
-                    }
+            if let GameInfo::IsOver(winner) = pos.play(move_).unwrap() {
+                if winner.to_bin() == position.turn.to_bin() {
+                    return (Evaluation::new(i32::MAX), nodes);
+                } else {
+                    return (Evaluation::new(i32::MIN + 1), nodes);
                 }
-                GameInfo::Ok(_) => (),
-                GameInfo::Pass(_) => break,
             }
             let res = Self::negamax(pos, depth - 1, -beta, -alpha, transpositions);
             nodes += res.1;
-            eval = std::cmp::max(eval, -res.0);
-            alpha = std::cmp::max(alpha, eval);
+            eval = Evaluation::new(std::cmp::max(eval.0, -res.0 .0));
+            alpha = std::cmp::max(alpha, eval.0);
             if alpha >= beta {
                 break;
             }
@@ -515,9 +536,9 @@ impl AI {
         // Add the move to the transposition table
         let new_move = MoveTable {
             eval,
-            flag: if eval <= origalpha {
+            flag: if eval.0 <= origalpha {
                 Flag::Upperbound
-            } else if eval >= beta {
+            } else if eval.0 >= beta {
                 Flag::Lowerbound
             } else {
                 Flag::Exact
@@ -535,7 +556,7 @@ impl AI {
         (eval, nodes)
     }
 
-    fn evaluate(mut position: Othello) -> i32 {
+    fn evaluate(mut position: Othello) -> Evaluation {
         let mut evaluation = 0;
         let mut color = 1;
         if position.turn == Color::White {
@@ -543,33 +564,39 @@ impl AI {
         }
         evaluation += color * position.get_moves().len() as i32;
         for (i, points) in (0..64).zip(Self::PIECE_SQUARE_TABLE.into_iter()) {
-            if position.squares[0] & 1 << i != 0 {
+            if position.squares[position.turn.to_bin()] & 1 << i != 0 {
                 evaluation += points + 1;
-            } else if position.squares[1] & 1 << i != 0 {
+            } else if position.squares[1 - position.turn.to_bin()] & 1 << i != 0 {
                 evaluation -= points + 1;
+            }
+            if 0 < i
+                && i < 63
+                && ((position.squares[0] | position.squares[1]) & 1 << (i - 1) == 0
+                    || (position.squares[0] | position.squares[1]) & 1 << (i + 1) == 0)
+            {
+                evaluation -= 1
             }
         }
         position.turn.flip();
         evaluation -= color * position.get_moves().len() as i32;
         position.turn.flip();
 
-        evaluation
+        // if position.turn.to_bin() == 1 {
+        //     evaluation *= -1;
+        // }
+
+        Evaluation::new(evaluation)
     }
 
-    pub fn search_iteratively(position: Othello, depth: u8) -> (Option<Square>, i32, u64) {
+    pub fn search_iteratively(position: Othello, depth: u8) -> (Square, Evaluation, u64) {
         let mut cdepth = 1;
-        // let mut best_move = Self::get_best_move(position.copy(), cdepth).0.unwrap();
+        let mut transpositions = HashMap::new();
         loop {
-            // let eval = Self::pvs(position.copy(), cdepth, best_move);
-            let eval = Self::get_best_move(position.copy(), cdepth);
+            let eval = Self::get_best_move_t(position.copy(), cdepth, &mut transpositions);
             println!(
                 "Move: {:<3} | Eval: {:<5} | Nodes: {:<8} | Depth: {:<3}",
-                eval.0.unwrap(),
-                eval.1,
-                eval.2,
-                cdepth
+                eval.0, eval.1, eval.2, cdepth
             );
-            // best_move = eval.0.unwrap();
             if cdepth == depth {
                 return eval;
             }
@@ -599,12 +626,11 @@ impl AI {
 
     pub fn play_openings(
         position: Othello,
-        moves_played: &str,
         iteratively: bool,
         depth: u8,
-    ) -> (Option<Square>, i32, u64) {
-        match Self::get_move_from_opening_book(moves_played) {
-            Some(move_) => (Some(Square::from(&move_[..2]).unwrap()), 0, 0),
+    ) -> (Square, Evaluation, u64) {
+        match Self::get_move_from_opening_book(&position.played_moves()) {
+            Some(move_) => (Square::from(&move_[..2]).unwrap(), Evaluation::unknown(), 0),
             None => {
                 if !iteratively {
                     Self::get_best_move(position, depth)
@@ -618,7 +644,7 @@ impl AI {
 
 struct MoveTable {
     depth: u8,
-    eval: i32,
+    eval: Evaluation,
     flag: Flag,
     color: Color,
 }
@@ -628,4 +654,75 @@ enum Flag {
     Upperbound,
     Lowerbound,
     Exact,
+}
+
+#[derive(Clone, Copy)]
+pub struct Evaluation(i32, EvalConfig);
+
+impl std::fmt::Display for Evaluation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let size = f.width().unwrap_or(0);
+        let mut x = match self.1 {
+            EvalConfig::Known => self.0.to_string(),
+            EvalConfig::Unknown => "?".to_string(),
+            EvalConfig::Infinity => "∞".to_string(),
+            EvalConfig::NegInfinity => "-∞".to_string(),
+        };
+        if size > x.len() {
+            x = match self.1 {
+                EvalConfig::Known => self.0.to_string() + &" ".to_string().repeat(size - x.len()),
+                EvalConfig::Unknown => "?".to_string() + &" ".to_string().repeat(size - 1),
+                EvalConfig::Infinity => "∞".to_string() + &" ".to_string().repeat(size - 1),
+                EvalConfig::NegInfinity => "-∞".to_string() + &" ".to_string().repeat(size - 2),
+            };
+        }
+        write!(f, "{}", x)
+    }
+}
+
+impl std::cmp::PartialEq for Evaluation {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl std::cmp::PartialOrd for Evaluation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl std::ops::Neg for Evaluation {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::new(-self.0)
+    }
+}
+
+impl Evaluation {
+    fn new(eval: i32) -> Self {
+        Self(
+            eval,
+            if eval == i32::MAX {
+                EvalConfig::Infinity
+            } else if eval == i32::MIN + 1 {
+                EvalConfig::NegInfinity
+            } else {
+                EvalConfig::Known
+            },
+        )
+    }
+
+    fn unknown() -> Self {
+        Self(0, EvalConfig::Unknown)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EvalConfig {
+    Known,
+    Unknown,
+    Infinity,
+    NegInfinity,
 }

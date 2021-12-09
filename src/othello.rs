@@ -1,6 +1,7 @@
 pub struct Othello {
     pub squares: [u64; 2], // 0 for black, 1 for white
     pub turn: Color,
+    moves: String,
 }
 
 impl Othello {
@@ -13,42 +14,56 @@ impl Othello {
         Self {
             squares,
             turn: Color::Black,
+            moves: String::new(),
         }
     }
 
-    pub fn play(&mut self, position: Square) -> Result<GameInfo, &str> {
-        if let GameState::Pass = self.place_if_possible(position)? {
-            self.turn.flip();
-            return Ok(GameInfo::Pass(self.turn));
+    pub fn new_empty() -> Self {
+        Self {
+            squares: [0; 2],
+            turn: Color::Black,
+            moves: String::new(),
         }
+    }
+
+    pub fn play(&mut self, position: Square) -> Validity<GameInfo> {
+        if let Validity::Invalid = self.place_if_possible(position) {
+            return Validity::Invalid;
+        }
+        let move_ = if self.turn == Color::Black {
+            position.to_string().to_uppercase()
+        } else {
+            position.to_string().to_lowercase()
+        };
+        self.moves.push_str(&move_);
         self.turn.flip();
-        if let Some(winner) = self.winner() {
-            return Ok(GameInfo::IsOver(winner));
+        if self.get_moves().is_empty() {
+            self.turn.flip()
         }
-        Ok(GameInfo::Ok(self.turn))
+        if let Some(winner) = self.winner() {
+            return Validity::Valid(GameInfo::IsOver(winner));
+        }
+        Validity::Valid(GameInfo::Ok(self.turn))
     }
 
-    fn place_if_possible(&mut self, position: Square) -> Result<GameState, &'static str> {
+    fn place_if_possible(&mut self, position: Square) -> Validity<()> {
         if (self.squares[0] | self.squares[1]) & 1 << position.0 != 0 {
-            return Err("The square is occupied");
+            return Validity::Invalid;
         }
         let flips = self.get_possible_moves();
-        if flips.is_empty() {
-            return Ok(GameState::Pass);
-        }
         let flips = match flips.iter().find(|square| square.0 .0 == position.0) {
             Some(flips) => flips,
-            None => return Err("This move is Illegal"),
+            None => return Validity::Invalid,
         };
         flip_bit(&mut self.squares[self.turn.to_bin()], flips.0 .0);
         for flip in &flips.1 {
             flip_bit(&mut self.squares[0], flip.0);
             flip_bit(&mut self.squares[1], flip.0);
         }
-        Ok(GameState::Ok)
+        Validity::Valid(())
     }
 
-    pub fn get_possible_moves(&self) -> Vec<(Square, Vec<Square>)> {
+    fn get_possible_moves(&self) -> Vec<(Square, Vec<Square>)> {
         let mut moves = Vec::new();
         for i in 0..64 {
             if (self.squares[0] | self.squares[1]) & 1 << i != 0 {
@@ -173,7 +188,12 @@ impl Othello {
         Self {
             squares: self.squares,
             turn: self.turn,
+            moves: self.moves.clone(),
         }
+    }
+
+    pub fn played_moves(&self) -> String {
+        self.moves.clone()
     }
 }
 
@@ -185,15 +205,20 @@ impl Default for Othello {
 
 impl std::fmt::Display for Othello {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let moves = self.get_moves();
         let mut board = String::new();
         let total = self.squares[0] | self.squares[1];
         for i in 0..64 {
             match total & (1 << i) {
-                0 => board.push_str("x "),
-                _ => board.push_str(if self.squares[0] & (1 << i) != 0 {
-                    "B "
+                0 => board.push_str(if moves.iter().any(|s| s.0 == i) {
+                    "\x1b[38;5;7;1m◌\x1b[0m "
                 } else {
-                    "W "
+                    "\x1b[37;2m*\x1b[0m "
+                }),
+                _ => board.push_str(if self.squares[0] & (1 << i) != 0 {
+                    "\x1b[90;1m●\x1b[0m "
+                } else {
+                    "\x1b[38;5;255;1m●\x1b[0m "
                 }),
             }
             if (i + 1) % 8 == 0 {
@@ -258,7 +283,6 @@ impl std::fmt::Debug for Square {
 pub enum GameInfo {
     IsOver(Color),
     Ok(Color),
-    Pass(Color),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -287,11 +311,21 @@ impl Color {
     }
 }
 
+#[inline(always)]
 fn flip_bit(bitboard: &mut u64, bit: u64) {
     *bitboard ^= 1 << (bit)
 }
 
-enum GameState {
-    Ok,
-    Pass,
+pub enum Validity<T> {
+    Valid(T),
+    Invalid,
+}
+
+impl<T> Validity<T> {
+    pub fn unwrap(self) -> T {
+        match self {
+            Self::Valid(t) => t,
+            Self::Invalid => panic!("called `Validity::unwrap()` on an `Invalid` value"),
+        }
+    }
 }
